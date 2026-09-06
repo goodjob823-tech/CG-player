@@ -1,0 +1,29 @@
+{
+  "name": "CG01-05 Player",
+  "short_name": "CG Player",
+  "description": "手機 / 平板可安裝的 CG 播放器 PWA 版本",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "background_color": "#090b10",
+  "theme_color": "#090b10",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
