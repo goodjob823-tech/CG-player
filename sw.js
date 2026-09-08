@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cg-player-ios-v2-clean-view';
+const CACHE_NAME = 'cg-player-ios-v3-cg02fix2';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 const MOBILE_PATCH = `
@@ -6,6 +6,7 @@ const MOBILE_PATCH = `
 @media (pointer:coarse), (max-width:900px) {
   #mobileToolbar { display:none !important; }
   body.ui-hidden #mobileToolbar { display:none !important; }
+  body.ui-hidden #hint { display:none !important; }
   #hint { bottom:calc(12px + env(safe-area-inset-bottom,0px)) !important; }
 }
 </style>
@@ -24,7 +25,7 @@ const MOBILE_PATCH = `
       document.body.classList.add('ui-hidden');
     }
     const hint = document.getElementById('hint');
-    if (hint) hint.textContent = '手機操作：點一下＝下一個動作／拖曳＝移動／雙指縮放；需要操作時按右上角「顯示 UI」';
+    if (hint) hint.textContent = '手機操作：點左半部＝前一個動作／點右半部＝下一個動作／拖曳＝移動／雙指開合＝縮放';
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', applyCleanView, {once:true});
@@ -80,6 +81,27 @@ self.addEventListener('fetch', event => {
         return new Response(injectMobilePatch(html), {
           headers: {'Content-Type':'text/html; charset=utf-8'}
         });
+      }
+    })());
+    return;
+  }
+
+  // Large CG/audio/background packs are network-first so a corrected asset is
+  // never hidden forever behind an older PWA cache. Fall back to cache offline.
+  const isRuntimePack = url.pathname.endsWith('.js');
+  if (isRuntimePack) {
+    event.respondWith((async () => {
+      try {
+        const resp = await fetch(event.request, {cache:'no-store'});
+        if (resp && resp.status === 200) {
+          const copy = resp.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(()=>{});
+        }
+        return resp;
+      } catch (e) {
+        const cached = await caches.match(event.request);
+        if (cached) return cached;
+        throw e;
       }
     })());
     return;
