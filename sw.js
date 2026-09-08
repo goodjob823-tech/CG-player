@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cg-player-ios-v3-cg02fix2';
+const CACHE_NAME = 'cg-player-ios-v4-stable-assets';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 const MOBILE_PATCH = `
@@ -86,24 +86,12 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Large CG/audio/background packs are network-first so a corrected asset is
-  // never hidden forever behind an older PWA cache. Fall back to cache offline.
-  const isRuntimePack = url.pathname.endsWith('.js');
+  // Large CG/audio/background data packs should use the browser's normal HTTP
+  // cache. Forcing cache:no-store on every request made iOS/4G downloads much
+  // less reliable and unnecessarily re-downloaded 10-20 MB files.
+  const isRuntimePack = /\/(assets_cg\d+|audio_\d+|backgrounds)\.js$/.test(url.pathname);
   if (isRuntimePack) {
-    event.respondWith((async () => {
-      try {
-        const resp = await fetch(event.request, {cache:'no-store'});
-        if (resp && resp.status === 200) {
-          const copy = resp.clone();
-          caches.open(CACHE_NAME).then(cache => cache.put(event.request, copy)).catch(()=>{});
-        }
-        return resp;
-      } catch (e) {
-        const cached = await caches.match(event.request);
-        if (cached) return cached;
-        throw e;
-      }
-    })());
+    event.respondWith(fetch(event.request));
     return;
   }
 
