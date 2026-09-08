@@ -19,155 +19,20 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
+          import base64
 
           path = Path('index.html')
           text = path.read_text(encoding='utf-8')
           marker = '<script id="offline-library-v1">'
+          encoded = 'PHNjcmlwdCBpZD0ib2ZmbGluZS1saWJyYXJ5LXYxIj4KKGZ1bmN0aW9uKCl7CiAgY29uc3QgQVBQUk9YX01CID0gODY7CiAgbGV0IG9mZmxpbmVCdG4gPSBudWxsOwogIGxldCBzd1JlZyA9IG51bGw7CiAgbGV0IG9mZmxpbmVDb21wbGV0ZSA9IGZhbHNlOwogIGxldCBidXN5ID0gZmFsc2U7CgogIGZ1bmN0aW9uIGdldFdvcmtlcigpewogICAgcmV0dXJuIChzd1JlZyAmJiAoc3dSZWcuYWN0aXZlIHx8IHN3UmVnLndhaXRpbmcgfHwgc3dSZWcuaW5zdGFsbGluZykpIHx8IG5hdmlnYXRvci5zZXJ2aWNlV29ya2VyLmNvbnRyb2xsZXIgfHwgbnVsbDsKICB9CgogIGZ1bmN0aW9uIGZyaWVuZGx5TmFtZShpdGVtKXsKICAgIGlmICghaXRlbSkgcmV0dXJuICfos4fmlpknOwogICAgY29uc3QgbSA9IGl0ZW0ubWF0Y2goL2Fzc2V0c19jZyhcZCspXC5qcy9pKTsKICAgIGlmIChtKSByZXR1cm4gJ0NHJyArIG1bMV07CiAgICBpZiAoaXRlbS5pbmNsdWRlcygnYmFja2dyb3VuZHMnKSkgcmV0dXJuICfog4zmma8nOwogICAgY29uc3QgYSA9IGl0ZW0ubWF0Y2goL2F1ZGlvXyhcZCspXC5qcy9pKTsKICAgIGlmIChhKSByZXR1cm4gJ+mfs+ioiiAnICsgYVsxXTsKICAgIHJldHVybiBpdGVtLnJlcGxhY2UoL15cLlwvLywnJyk7CiAgfQoKICBmdW5jdGlvbiBzZXRCdXR0b24odGV4dCwgZGlzYWJsZWQ9ZmFsc2UpewogICAgaWYgKCFvZmZsaW5lQnRuKSByZXR1cm47CiAgICBvZmZsaW5lQnRuLnRleHRDb250ZW50ID0gdGV4dDsKICAgIG9mZmxpbmVCdG4uZGlzYWJsZWQgPSBkaXNhYmxlZDsKICB9CgogIGZ1bmN0aW9uIGFkZEJ1dHRvbigpewogICAgaWYgKGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdvZmZsaW5lTGlicmFyeUJ0bicpKSB7CiAgICAgIG9mZmxpbmVCdG4gPSBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnb2ZmbGluZUxpYnJhcnlCdG4nKTsKICAgICAgcmV0dXJuOwogICAgfQogICAgY29uc3QgdG9wYmFyID0gZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3RvcGJhcicpOwogICAgaWYgKCF0b3BiYXIpIHJldHVybjsKICAgIG9mZmxpbmVCdG4gPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCdidXR0b24nKTsKICAgIG9mZmxpbmVCdG4uaWQgPSAnb2ZmbGluZUxpYnJhcnlCdG4nOwogICAgb2ZmbGluZUJ0bi50eXBlID0gJ2J1dHRvbic7CiAgICBvZmZsaW5lQnRuLnRleHRDb250ZW50ID0gJ+aqouafpemboue3muizh+aWmeKApic7CiAgICBvZmZsaW5lQnRuLnRpdGxlID0gYOWujOaVtOmboue3muizh+aWmee0hCAke0FQUFJPWF9NQn0gTULvvIzlu7rorbDkvb/nlKggV2nigJFGaWA7CiAgICBvZmZsaW5lQnRuLmFkZEV2ZW50TGlzdGVuZXIoJ2NsaWNrJywgc3RhcnRPZmZsaW5lRG93bmxvYWQpOwogICAgdG9wYmFyLmFwcGVuZENoaWxkKG9mZmxpbmVCdG4pOwogIH0KCiAgZnVuY3Rpb24gcG9zdFRvV29ya2VyKG1lc3NhZ2UpewogICAgY29uc3Qgd29ya2VyID0gZ2V0V29ya2VyKCk7CiAgICBpZiAoIXdvcmtlcikgdGhyb3cgbmV3IEVycm9yKCfpm6Lnt5rmnI3li5nlsJrmnKrmupblgpnlrozmiJAnKTsKICAgIHdvcmtlci5wb3N0TWVzc2FnZShtZXNzYWdlKTsKICB9CgogIGFzeW5jIGZ1bmN0aW9uIHN0YXJ0T2ZmbGluZURvd25sb2FkKCl7CiAgICBpZiAoYnVzeSkgcmV0dXJuOwogICAgaWYgKCFuYXZpZ2F0b3Iub25MaW5lKSB7CiAgICAgIHNldEJ1dHRvbign55uu5YmN6Zui57ea77yM54Sh5rOV5pu05pawJyk7CiAgICAgIHJldHVybjsKICAgIH0KICAgIGNvbnN0IG9rID0gd2luZG93LmNvbmZpcm0oYOWujOaVtOmboue3muizh+aWmee0hCAke0FQUFJPWF9NQn0gTULjgILlu7rorbDpgKPmjqUgV2nigJFGaSDlvozkuIvovInjgIJcblxu6KaB54++5Zyo6ZaL5aeL5ZeO77yfYCk7CiAgICBpZiAoIW9rKSByZXR1cm47CiAgICBidXN5ID0gdHJ1ZTsKICAgIHNldEJ1dHRvbihvZmZsaW5lQ29tcGxldGUgPyAn5q2j5Zyo5pu05paw6Zui57ea6LOH5paZ4oCmJyA6ICfmupblgpnkuIvovInpm6Lnt5ros4fmlpnigKYnLCB0cnVlKTsKICAgIHRyeSB7CiAgICAgIGlmIChuYXZpZ2F0b3Iuc3RvcmFnZSAmJiBuYXZpZ2F0b3Iuc3RvcmFnZS5wZXJzaXN0KSB7CiAgICAgICAgdHJ5IHsgYXdhaXQgbmF2aWdhdG9yLnN0b3JhZ2UucGVyc2lzdCgpOyB9IGNhdGNoKGUpIHt9CiAgICAgIH0KICAgICAgcG9zdFRvV29ya2VyKHt0eXBlOidET1dOTE9BRF9PRkZMSU5FJywgZm9yY2U6b2ZmbGluZUNvbXBsZXRlfSk7CiAgICB9IGNhdGNoKGUpIHsKICAgICAgYnVzeSA9IGZhbHNlOwogICAgICBzZXRCdXR0b24oJ+mboue3muS4i+i8ieWkseaVl++8jOm7nuatpOmHjeippicpOwogICAgICBvZmZsaW5lQnRuLnRpdGxlID0gU3RyaW5nKGUgJiYgZS5tZXNzYWdlID8gZS5tZXNzYWdlIDogZSk7CiAgICB9CiAgfQoKICBmdW5jdGlvbiBoYW5kbGVXb3JrZXJNZXNzYWdlKGV2ZW50KXsKICAgIGNvbnN0IGRhdGEgPSBldmVudC5kYXRhIHx8IHt9OwogICAgaWYgKCFvZmZsaW5lQnRuKSByZXR1cm47CgogICAgaWYgKGRhdGEudHlwZSA9PT0gJ09GRkxJTkVfU1RBVFVTJykgewogICAgICBvZmZsaW5lQ29tcGxldGUgPSAhIWRhdGEuY29tcGxldGU7CiAgICAgIGlmIChidXN5KSByZXR1cm47CiAgICAgIGlmIChvZmZsaW5lQ29tcGxldGUpIHNldEJ1dHRvbign5pu05paw6Zui57ea6LOH5paZIOKckycpOwogICAgICBlbHNlIGlmIChkYXRhLmNvdW50ID4gMCkgc2V0QnV0dG9uKGDnubznuozkuIvovInpm6Lnt5ros4fmlpkgKCR7ZGF0YS5jb3VudH0vJHtkYXRhLnRvdGFsfSlgKTsKICAgICAgZWxzZSBzZXRCdXR0b24oJ+S4i+i8iemboue3muizh+aWmScpOwogICAgICByZXR1cm47CiAgICB9CgogICAgaWYgKGRhdGEudHlwZSA9PT0gJ09GRkxJTkVfUFJPR1JFU1MnKSB7CiAgICAgIGJ1c3kgPSB0cnVlOwogICAgICBjb25zdCBwZXJjZW50ID0gTWF0aC5yb3VuZCgoTnVtYmVyKGRhdGEuaW5kZXggfHwgMCkgLyBOdW1iZXIoZGF0YS50b3RhbCB8fCAxKSkgKiAxMDApOwogICAgICBjb25zdCBsYWJlbCA9IGZyaWVuZGx5TmFtZShkYXRhLml0ZW0pOwogICAgICBzZXRCdXR0b24oZGF0YS5zdGFnZSA9PT0gJ2Rvd25sb2FkaW5nJyA/IGDkuIvovIkgJHtsYWJlbH3igKYgJHtwZXJjZW50fSVgIDogYCR7bGFiZWx9IOWujOaIkCAke3BlcmNlbnR9JWAsIHRydWUpOwogICAgICByZXR1cm47CiAgICB9CgogICAgaWYgKGRhdGEudHlwZSA9PT0gJ09GRkxJTkVfRE9ORScpIHsKICAgICAgYnVzeSA9IGZhbHNlOwogICAgICBvZmZsaW5lQ29tcGxldGUgPSB0cnVlOwogICAgICBzZXRCdXR0b24oJ+abtOaWsOmboue3muizh+aWmSDinJMnKTsKICAgICAgb2ZmbGluZUJ0bi50aXRsZSA9ICflrozmlbTpm6Lnt5ros4fmlpnlt7LkuIvovInvvIzlj6/lnKjmspLmnInntrLot6/mmYLkvb/nlKgnOwogICAgICB0cnkgeyBsb2NhbFN0b3JhZ2Uuc2V0SXRlbSgnY2dfb2ZmbGluZV9saWJyYXJ5X3JlYWR5JywnMScpOyB9IGNhdGNoKGUpIHt9CiAgICAgIHJldHVybjsKICAgIH0KCiAgICBpZiAoZGF0YS50eXBlID09PSAnT0ZGTElORV9FUlJPUicpIHsKICAgICAgYnVzeSA9IGZhbHNlOwogICAgICBvZmZsaW5lQ29tcGxldGUgPSBmYWxzZTsKICAgICAgc2V0QnV0dG9uKCfpm6Lnt5rkuIvovInlpLHmlZfvvIzpu57mraTph43oqaYnKTsKICAgICAgb2ZmbGluZUJ0bi50aXRsZSA9IFN0cmluZyhkYXRhLm1lc3NhZ2UgfHwgJ+S4i+i8ieWkseaVlycpOwogICAgfQogIH0KCiAgYXN5bmMgZnVuY3Rpb24gaW5pdE9mZmxpbmVNb2RlKCl7CiAgICBhZGRCdXR0b24oKTsKICAgIGlmICghKCdzZXJ2aWNlV29ya2VyJyBpbiBuYXZpZ2F0b3IpKSB7CiAgICAgIHNldEJ1dHRvbign5q2k54CP6Ka95Zmo5LiN5pSv5o+06Zui57ea5qih5byPJywgdHJ1ZSk7CiAgICAgIHJldHVybjsKICAgIH0KICAgIG5hdmlnYXRvci5zZXJ2aWNlV29ya2VyLmFkZEV2ZW50TGlzdGVuZXIoJ21lc3NhZ2UnLCBoYW5kbGVXb3JrZXJNZXNzYWdlKTsKICAgIHRyeSB7CiAgICAgIHN3UmVnID0gYXdhaXQgbmF2aWdhdG9yLnNlcnZpY2VXb3JrZXIucmVnaXN0ZXIoJy4vc3cuanMnKTsKICAgICAgdHJ5IHsgYXdhaXQgc3dSZWcudXBkYXRlKCk7IH0gY2F0Y2goZSkge30KICAgICAgc3dSZWcgPSBhd2FpdCBuYXZpZ2F0b3Iuc2VydmljZVdvcmtlci5yZWFkeTsKICAgICAgcG9zdFRvV29ya2VyKHt0eXBlOidHRVRfT0ZGTElORV9TVEFUVVMnfSk7CiAgICB9IGNhdGNoKGUpIHsKICAgICAgc2V0QnV0dG9uKCfpm6Lnt5rlip/og73liJ3lp4vljJblpLHmlZfvvIzpu57mraTph43oqaYnKTsKICAgICAgaWYgKG9mZmxpbmVCdG4pIHsKICAgICAgICBvZmZsaW5lQnRuLmRpc2FibGVkID0gZmFsc2U7CiAgICAgICAgb2ZmbGluZUJ0bi5vbmNsaWNrID0gKCkgPT4gbG9jYXRpb24ucmVsb2FkKCk7CiAgICAgICAgb2ZmbGluZUJ0bi50aXRsZSA9IFN0cmluZyhlICYmIGUubWVzc2FnZSA/IGUubWVzc2FnZSA6IGUpOwogICAgICB9CiAgICB9CiAgfQoKICBpZiAoZG9jdW1lbnQucmVhZHlTdGF0ZSA9PT0gJ2xvYWRpbmcnKSBkb2N1bWVudC5hZGRFdmVudExpc3RlbmVyKCdET01Db250ZW50TG9hZGVkJywgaW5pdE9mZmxpbmVNb2RlLCB7b25jZTp0cnVlfSk7CiAgZWxzZSBpbml0T2ZmbGluZU1vZGUoKTsKfSkoKTsKPC9zY3JpcHQ+'
 
           if marker not in text:
-              block = r'''
-<script id="offline-library-v1">
-(function(){
-  const APPROX_MB = 86;
-  let offlineBtn = null;
-  let swReg = null;
-  let offlineComplete = false;
-  let busy = false;
-
-  function getWorker(){
-    return (swReg && (swReg.active || swReg.waiting || swReg.installing)) || navigator.serviceWorker.controller || null;
-  }
-
-  function friendlyName(item){
-    if (!item) return '資料';
-    const m = item.match(/assets_cg(\d+)\.js/i);
-    if (m) return 'CG' + m[1];
-    if (item.includes('backgrounds')) return '背景';
-    const a = item.match(/audio_(\d+)\.js/i);
-    if (a) return '音訊 ' + a[1];
-    return item.replace(/^\.\//,'');
-  }
-
-  function setButton(text, disabled=false){
-    if (!offlineBtn) return;
-    offlineBtn.textContent = text;
-    offlineBtn.disabled = disabled;
-  }
-
-  function addButton(){
-    if (document.getElementById('offlineLibraryBtn')) {
-      offlineBtn = document.getElementById('offlineLibraryBtn');
-      return;
-    }
-    const topbar = document.getElementById('topbar');
-    if (!topbar) return;
-    offlineBtn = document.createElement('button');
-    offlineBtn.id = 'offlineLibraryBtn';
-    offlineBtn.type = 'button';
-    offlineBtn.textContent = '檢查離線資料…';
-    offlineBtn.title = `完整離線資料約 ${APPROX_MB} MB，建議使用 Wi‑Fi`;
-    offlineBtn.addEventListener('click', startOfflineDownload);
-    topbar.appendChild(offlineBtn);
-  }
-
-  function postToWorker(message){
-    const worker = getWorker();
-    if (!worker) throw new Error('離線服務尚未準備完成');
-    worker.postMessage(message);
-  }
-
-  async function startOfflineDownload(){
-    if (busy) return;
-    if (!navigator.onLine) {
-      setButton('目前離線，無法更新');
-      return;
-    }
-    const ok = window.confirm(`完整離線資料約 ${APPROX_MB} MB。建議連接 Wi‑Fi 後下載。\n\n要現在開始嗎？`);
-    if (!ok) return;
-    busy = true;
-    setButton(offlineComplete ? '正在更新離線資料…' : '準備下載離線資料…', true);
-    try {
-      if (navigator.storage && navigator.storage.persist) {
-        try { await navigator.storage.persist(); } catch(e) {}
-      }
-      postToWorker({type:'DOWNLOAD_OFFLINE', force:offlineComplete});
-    } catch(e) {
-      busy = false;
-      setButton('離線下載失敗，點此重試');
-      offlineBtn.title = String(e && e.message ? e.message : e);
-    }
-  }
-
-  function handleWorkerMessage(event){
-    const data = event.data || {};
-    if (!offlineBtn) return;
-
-    if (data.type === 'OFFLINE_STATUS') {
-      offlineComplete = !!data.complete;
-      if (busy) return;
-      if (offlineComplete) setButton('更新離線資料 ✓');
-      else if (data.count > 0) setButton(`繼續下載離線資料 (${data.count}/${data.total})`);
-      else setButton('下載離線資料');
-      return;
-    }
-
-    if (data.type === 'OFFLINE_PROGRESS') {
-      busy = true;
-      const percent = Math.round((Number(data.index || 0) / Number(data.total || 1)) * 100);
-      const label = friendlyName(data.item);
-      setButton(data.stage === 'downloading' ? `下載 ${label}… ${percent}%` : `${label} 完成 ${percent}%`, true);
-      return;
-    }
-
-    if (data.type === 'OFFLINE_DONE') {
-      busy = false;
-      offlineComplete = true;
-      setButton('更新離線資料 ✓');
-      offlineBtn.title = '完整離線資料已下載，可在沒有網路時使用';
-      try { localStorage.setItem('cg_offline_library_ready','1'); } catch(e) {}
-      return;
-    }
-
-    if (data.type === 'OFFLINE_ERROR') {
-      busy = false;
-      offlineComplete = false;
-      setButton('離線下載失敗，點此重試');
-      offlineBtn.title = String(data.message || '下載失敗');
-    }
-  }
-
-  async function initOfflineMode(){
-    addButton();
-    if (!('serviceWorker' in navigator)) {
-      setButton('此瀏覽器不支援離線模式', true);
-      return;
-    }
-    navigator.serviceWorker.addEventListener('message', handleWorkerMessage);
-    try {
-      swReg = await navigator.serviceWorker.register('./sw.js');
-      try { await swReg.update(); } catch(e) {}
-      swReg = await navigator.serviceWorker.ready;
-      postToWorker({type:'GET_OFFLINE_STATUS'});
-    } catch(e) {
-      setButton('離線功能初始化失敗，點此重試');
-      if (offlineBtn) {
-        offlineBtn.disabled = false;
-        offlineBtn.onclick = () => location.reload();
-        offlineBtn.title = String(e && e.message ? e.message : e);
-      }
-    }
-  }
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initOfflineMode, {once:true});
-  else initOfflineMode();
-})();
-</script>
-'''
+              block = base64.b64decode(encoded).decode('utf-8')
               text = text.replace('</body>', block + '\n</body>', 1)
 
           assert marker in text
           assert 'offlineLibraryBtn' in text
-          assert "DOWNLOAD_OFFLINE" in text
+          assert 'DOWNLOAD_OFFLINE' in text
           path.write_text(text, encoding='utf-8')
 
       - name: Commit changes
