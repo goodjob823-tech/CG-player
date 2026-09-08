@@ -33,6 +33,7 @@ body.ui-hidden #topbar{transform:translateY(-115%);opacity:0;pointer-events:none
 #error{max-width:min(92vw,900px);padding:16px 18px;border-radius:12px;background:#3d1820;color:#ffdfe6;border:1px solid #7b3142;white-space:pre-wrap}
 #showUiBtn{position:absolute;right:12px;top:12px;z-index:40;display:none;background:rgba(20,24,32,.82);color:#eef2f7;border:1px solid #485266;border-radius:999px;padding:8px 12px;cursor:pointer;backdrop-filter:blur(3px)}
 body.ui-hidden #showUiBtn{display:block}
+body.ui-hidden #hint{display:none!important}
 .kbd{padding:2px 7px;border-radius:7px;background:#232937;border:1px solid #40495c;font-size:12px}
 
 /* Mobile enhancement patch */
@@ -271,7 +272,7 @@ function loadScriptOnce(src){
   if(scriptLoads.has(src))return scriptLoads.get(src);
   const p=new Promise((resolve,reject)=>{
     const s=document.createElement('script');
-    s.src=src;s.async=true;
+    s.src=src+(src.includes('?')?'&':'?')+'v=20260908-cg02fix2';s.async=true;
     s.onload=()=>resolve(src);
     s.onerror=()=>reject(new Error(`無法下載 ${src}`));
     document.head.appendChild(s);
@@ -570,7 +571,7 @@ async function loadCG(cg){
     mipmaps:(cg!=='CG02'),alpha:true,backgroundColor:'#00000000',viewport:{transitionTime:0},
     success:(p)=>{
       if(t!==loadingToken)return;
-      player=p;installHighQualityRenderer(p);
+      player=p;if(cg!=='CG02')installHighQualityRenderer(p);
       currentAnimNames=(p.skeleton.data.animations||[]).map(a=>a.name);
       p.animationState.addListener({event:(entry,ev)=>{try{const n=ev&&ev.data?ev.data.name:(ev&&ev.name?ev.name:'');playAudioEvent(n)}catch(e){}}});
       p.animationState.data.defaultMix=0;
@@ -589,7 +590,7 @@ document.addEventListener('fullscreenchange',updateHUD);
 stage.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.clientX,e.clientY,Math.exp(-e.deltaY*.0015));stage.focus()},{passive:false});
 stage.addEventListener('pointerdown',e=>{unlockAudio();if(e.button!==0||e.target.id==='showUiBtn')return;dragging=true;movedDuringDrag=false;dragState={x:e.clientX,y:e.clientY,tx:view.tx,ty:view.ty};stage.classList.add('dragging');try{stage.setPointerCapture(e.pointerId)}catch(_e){}});
 stage.addEventListener('pointermove',e=>{if(!dragging)return;const dx=e.clientX-dragState.x,dy=e.clientY-dragState.y;if(Math.abs(dx)+Math.abs(dy)>3)movedDuringDrag=true;view.tx=dragState.tx+dx;view.ty=dragState.ty+dy;applyView()});
-stage.addEventListener('pointerup',e=>{if(!dragging)return;dragging=false;stage.classList.remove('dragging');try{stage.releasePointerCapture(e.pointerId)}catch(_e){}if(!movedDuringDrag&&e.target.id!=='showUiBtn')nextAction()});
+stage.addEventListener('pointerup',e=>{if(!dragging)return;dragging=false;stage.classList.remove('dragging');try{stage.releasePointerCapture(e.pointerId)}catch(_e){}if(!movedDuringDrag&&e.target.id!=='showUiBtn'){const mobileTap=e.pointerType==='touch'||window.matchMedia('(pointer:coarse),(max-width:900px)').matches;if(mobileTap){const r=stage.getBoundingClientRect();if(e.clientX<r.left+r.width/2)prevAction();else nextAction()}else nextAction()}});
 stage.addEventListener('pointercancel',()=>{dragging=false;stage.classList.remove('dragging')});
 stage.addEventListener('contextmenu',e=>{if(e.target.id==='showUiBtn')return; e.preventDefault(); prevAction(); stage.focus()});
 window.addEventListener('keydown',e=>{unlockAudio();const tag=(e.target&&e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='textarea'||tag==='select')return;if(e.key==='ArrowRight'||e.key==='Enter'){e.preventDefault();nextAction()}else if(e.key==='ArrowLeft'){e.preventDefault();prevAction()}else if(e.key==='ArrowUp'){e.preventDefault();changeCG(-1)}else if(e.key==='ArrowDown'){e.preventDefault();changeCG(1)}else if(e.code==='Space'){e.preventDefault();togglePause()}else if(e.key==='a'||e.key==='A'){e.preventDefault();toggleAutoMode()}else if(e.key==='f'||e.key==='F'){e.preventDefault();toggleFullscreen()}else if(e.key==='h'||e.key==='H'){e.preventDefault();toggleUi()}else if(e.key==='l'||e.key==='L'){e.preventDefault();loadCurrentSavedView()}else if(e.key==='m'||e.key==='M'){e.preventDefault();toggleAudioMute()}else if(e.key==='r'||e.key==='R'){e.preventDefault();resetView()}stage.focus()});
@@ -689,7 +690,7 @@ applyUiHidden();applyView();updateHUD();loadCGByIndex(currentCGIndex);
   // Simplify hint text for touch devices.
   const hintEl = document.getElementById('hint');
   if (hintEl && mobileLike) {
-    hintEl.textContent = '手機操作：點一下＝下一個動作／長按拖曳＝移動／雙指開合＝縮放／需要操作時按右上角「顯示 UI」';
+    hintEl.textContent = '手機操作：點左半部＝前一個動作／點右半部＝下一個動作／拖曳＝移動／雙指開合＝縮放';
   }
 
   // Build a touch-friendly toolbar inside the stage.
@@ -775,9 +776,11 @@ applyUiHidden();applyView();updateHUD();loadCGByIndex(currentCGIndex);
   };
   function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
   function center(a,b){ return {x:(a.x+b.x)/2, y:(a.y+b.y)/2}; }
+  let pinchConsumedTap = false;
   function beginPinch(){
     const pts = [...activePointers.values()];
     if (pts.length < 2) return;
+    pinchConsumedTap = true;
     const c = center(pts[0], pts[1]);
     pinch = {
       dist: Math.max(1, dist(pts[0], pts[1])),
@@ -829,6 +832,15 @@ applyUiHidden();applyView();updateHUD();loadCGByIndex(currentCGIndex);
   function clearTouchPointer(e){
     if (e.pointerType !== 'touch') return;
     activePointers.delete(e.pointerId);
+    if (pinchConsumedTap) {
+      endPinchIfNeeded();
+      dragging = false;
+      stageEl.classList.remove('dragging');
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (activePointers.size === 0) pinchConsumedTap = false;
+      return;
+    }
     if (pinch || activePointers.size >= 1) {
       endPinchIfNeeded();
       if (pinch === null) { e.stopImmediatePropagation(); }
@@ -837,19 +849,7 @@ applyUiHidden();applyView();updateHUD();loadCGByIndex(currentCGIndex);
   stageEl.addEventListener('pointerup', clearTouchPointer, {capture:true});
   stageEl.addEventListener('pointercancel', clearTouchPointer, {capture:true});
 
-  // Double tap toggles UI on mobile for convenience.
-  let lastTap = 0;
-  stageEl.addEventListener('click', function(e){
-    if (!mobileLike) return;
-    const now = Date.now();
-    if (now - lastTap < 280 && e.target.id !== 'showUiBtn') {
-      toggleUi();
-      suppressUntil = now + 250;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    }
-    lastTap = now;
-  }, true);
+  // Double-tap UI toggle disabled; every tap is reserved for action navigation.
 
   // More helpful first-load defaults on touch devices.
   if (mobileLike) {
