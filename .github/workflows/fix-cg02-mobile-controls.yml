@@ -15,6 +15,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Sync latest main
+        run: git pull --rebase origin main
+
       - name: Patch mobile cache reset
         shell: python
         run: |
@@ -39,7 +42,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
           git add index.html
           if git diff --cached --quiet; then
             echo "No changes needed"
@@ -48,4 +50,4 @@ jobs:
           git commit -m "Reset stale mobile PWA caches and disable SW on mobile"
           git push
 
-# retry after service-worker cleanup commit
+# retry with sync before patch
