@@ -1,4 +1,4 @@
-name: Make CG asset loading reliable
+name: Add complete offline mode
 
 on:
   push:
@@ -15,47 +15,159 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Patch lazy loader
+      - name: Add offline UI
         shell: python
         run: |
           from pathlib import Path
+
           path = Path('index.html')
           text = path.read_text(encoding='utf-8')
-          start = text.index('function loadScriptOnce(src){')
-          end = text.index('function cgAssetScript', start)
-          lines = [
-              "function loadScriptOnce(src){",
-              "  if(scriptLoads.has(src))return scriptLoads.get(src);",
-              "  const p=new Promise((resolve,reject)=>{",
-              "    let attempt=0;",
-              "    const maxAttempts=3;",
-              "    const run=()=>{",
-              "      attempt++;",
-              "      const s=document.createElement('script');",
-              "      const version=(src==='assets_cg02.js')?'?v=20260908-cg02fix3':'';",
-              "      s.src=src+version;",
-              "      s.async=true;",
-              "      s.onload=()=>resolve(src);",
-              "      s.onerror=()=>{",
-              "        try{s.remove()}catch(e){}",
-              "        if(attempt<maxAttempts){setTimeout(run,500*attempt);return;}",
-              "        reject(new Error(`無法下載 ${src}（已重試 ${maxAttempts} 次）`));",
-              "      };",
-              "      document.head.appendChild(s);",
-              "    };",
-              "    run();",
-              "  });",
-              "  scriptLoads.set(src,p);",
-              "  p.catch(()=>scriptLoads.delete(src));",
-              "  return p;",
-              "}",
-              "",
-          ]
-          new_func = '\n'.join(lines)
-          text = text[:start] + new_func + text[end:]
-          assert "const version=(src==='assets_cg02.js')?'?v=20260908-cg02fix3':'';" in text
-          assert 'const maxAttempts=3;' in text
-          assert 'p.catch(()=>scriptLoads.delete(src));' in text
+          marker = '<script id="offline-library-v1">'
+
+          if marker not in text:
+              block = r'''
+<script id="offline-library-v1">
+(function(){
+  const APPROX_MB = 86;
+  let offlineBtn = null;
+  let swReg = null;
+  let offlineComplete = false;
+  let busy = false;
+
+  function getWorker(){
+    return (swReg && (swReg.active || swReg.waiting || swReg.installing)) || navigator.serviceWorker.controller || null;
+  }
+
+  function friendlyName(item){
+    if (!item) return '資料';
+    const m = item.match(/assets_cg(\d+)\.js/i);
+    if (m) return 'CG' + m[1];
+    if (item.includes('backgrounds')) return '背景';
+    const a = item.match(/audio_(\d+)\.js/i);
+    if (a) return '音訊 ' + a[1];
+    return item.replace(/^\.\//,'');
+  }
+
+  function setButton(text, disabled=false){
+    if (!offlineBtn) return;
+    offlineBtn.textContent = text;
+    offlineBtn.disabled = disabled;
+  }
+
+  function addButton(){
+    if (document.getElementById('offlineLibraryBtn')) {
+      offlineBtn = document.getElementById('offlineLibraryBtn');
+      return;
+    }
+    const topbar = document.getElementById('topbar');
+    if (!topbar) return;
+    offlineBtn = document.createElement('button');
+    offlineBtn.id = 'offlineLibraryBtn';
+    offlineBtn.type = 'button';
+    offlineBtn.textContent = '檢查離線資料…';
+    offlineBtn.title = `完整離線資料約 ${APPROX_MB} MB，建議使用 Wi‑Fi`;
+    offlineBtn.addEventListener('click', startOfflineDownload);
+    topbar.appendChild(offlineBtn);
+  }
+
+  function postToWorker(message){
+    const worker = getWorker();
+    if (!worker) throw new Error('離線服務尚未準備完成');
+    worker.postMessage(message);
+  }
+
+  async function startOfflineDownload(){
+    if (busy) return;
+    if (!navigator.onLine) {
+      setButton('目前離線，無法更新');
+      return;
+    }
+    const ok = window.confirm(`完整離線資料約 ${APPROX_MB} MB。建議連接 Wi‑Fi 後下載。\n\n要現在開始嗎？`);
+    if (!ok) return;
+    busy = true;
+    setButton(offlineComplete ? '正在更新離線資料…' : '準備下載離線資料…', true);
+    try {
+      if (navigator.storage && navigator.storage.persist) {
+        try { await navigator.storage.persist(); } catch(e) {}
+      }
+      postToWorker({type:'DOWNLOAD_OFFLINE', force:offlineComplete});
+    } catch(e) {
+      busy = false;
+      setButton('離線下載失敗，點此重試');
+      offlineBtn.title = String(e && e.message ? e.message : e);
+    }
+  }
+
+  function handleWorkerMessage(event){
+    const data = event.data || {};
+    if (!offlineBtn) return;
+
+    if (data.type === 'OFFLINE_STATUS') {
+      offlineComplete = !!data.complete;
+      if (busy) return;
+      if (offlineComplete) setButton('更新離線資料 ✓');
+      else if (data.count > 0) setButton(`繼續下載離線資料 (${data.count}/${data.total})`);
+      else setButton('下載離線資料');
+      return;
+    }
+
+    if (data.type === 'OFFLINE_PROGRESS') {
+      busy = true;
+      const percent = Math.round((Number(data.index || 0) / Number(data.total || 1)) * 100);
+      const label = friendlyName(data.item);
+      setButton(data.stage === 'downloading' ? `下載 ${label}… ${percent}%` : `${label} 完成 ${percent}%`, true);
+      return;
+    }
+
+    if (data.type === 'OFFLINE_DONE') {
+      busy = false;
+      offlineComplete = true;
+      setButton('更新離線資料 ✓');
+      offlineBtn.title = '完整離線資料已下載，可在沒有網路時使用';
+      try { localStorage.setItem('cg_offline_library_ready','1'); } catch(e) {}
+      return;
+    }
+
+    if (data.type === 'OFFLINE_ERROR') {
+      busy = false;
+      offlineComplete = false;
+      setButton('離線下載失敗，點此重試');
+      offlineBtn.title = String(data.message || '下載失敗');
+    }
+  }
+
+  async function initOfflineMode(){
+    addButton();
+    if (!('serviceWorker' in navigator)) {
+      setButton('此瀏覽器不支援離線模式', true);
+      return;
+    }
+    navigator.serviceWorker.addEventListener('message', handleWorkerMessage);
+    try {
+      swReg = await navigator.serviceWorker.register('./sw.js');
+      try { await swReg.update(); } catch(e) {}
+      swReg = await navigator.serviceWorker.ready;
+      postToWorker({type:'GET_OFFLINE_STATUS'});
+    } catch(e) {
+      setButton('離線功能初始化失敗，點此重試');
+      if (offlineBtn) {
+        offlineBtn.disabled = false;
+        offlineBtn.onclick = () => location.reload();
+        offlineBtn.title = String(e && e.message ? e.message : e);
+      }
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initOfflineMode, {once:true});
+  else initOfflineMode();
+})();
+</script>
+'''
+              text = text.replace('</body>', block + '\n</body>', 1)
+
+          assert marker in text
+          assert 'offlineLibraryBtn' in text
+          assert "DOWNLOAD_OFFLINE" in text
           path.write_text(text, encoding='utf-8')
 
       - name: Commit changes
@@ -67,5 +179,5 @@ jobs:
             echo "No changes needed"
             exit 0
           fi
-          git commit -m "Retry failed CG pack downloads and stop cache-busting CG01"
+          git commit -m "Add complete offline download and update controls"
           git push
