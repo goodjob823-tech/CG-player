@@ -1,4 +1,4 @@
-name: Fix CG02 rendering and mobile controls
+name: Make CG asset loading reliable
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Patch player
+      - name: Patch lazy loader
         shell: python
         run: |
           from pathlib import Path
@@ -23,77 +23,55 @@ jobs:
           path = Path('index.html')
           text = path.read_text(encoding='utf-8')
 
-          # Hide the bottom hint completely whenever UI is hidden.
-          css_anchor = 'body.ui-hidden #showUiBtn{display:block}'
-          if 'body.ui-hidden #hint{display:none!important}' not in text:
-              if css_anchor not in text:
-                  raise RuntimeError('UI CSS anchor not found')
-              text = text.replace(css_anchor, css_anchor + '\nbody.ui-hidden #hint{display:none!important}', 1)
+          old = """function loadScriptOnce(src){
+  if(scriptLoads.has(src))return scriptLoads.get(src);
+  const p=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src=src+(src.includes('?')?'&':'?')+'v=20260908-cg02fix2';s.async=true;
+    s.onload=()=>resolve(src);
+    s.onerror=()=>reject(new Error(`無法下載 ${src}`));
+    document.head.appendChild(s);
+  });
+  scriptLoads.set(src,p);return p;
+}"""
 
-          # New touch instructions.
-          old_hint = "hintEl.textContent = '手機操作：點一下＝下一個動作／長按拖曳＝移動／雙指開合＝縮放／需要操作時按右上角「顯示 UI」';"
-          new_hint = "hintEl.textContent = '手機操作：點左半部＝前一個動作／點右半部＝下一個動作／拖曳＝移動／雙指開合＝縮放';"
-          if old_hint in text:
-              text = text.replace(old_hint, new_hint, 1)
+          new = """function loadScriptOnce(src){
+  if(scriptLoads.has(src))return scriptLoads.get(src);
+  const p=new Promise((resolve,reject)=>{
+    let attempt=0;
+    const maxAttempts=3;
+    const run=()=>{
+      attempt++;
+      const s=document.createElement('script');
+      const version=(src==='assets_cg02.js')?'?v=20260908-cg02fix3':'';
+      s.src=src+version;
+      s.async=true;
+      s.onload=()=>resolve(src);
+      s.onerror=()=>{
+        try{s.remove()}catch(e){}
+        if(attempt<maxAttempts){setTimeout(run,500*attempt);return;}
+        reject(new Error(`無法下載 ${src}（已重試 ${maxAttempts} 次）`));
+      };
+      document.head.appendChild(s);
+    };
+    run();
+  });
+  scriptLoads.set(src,p);
+  p.catch(()=>scriptLoads.delete(src));
+  return p;
+}"""
 
-          # Bust old PWA caches for the lazy data packs. The CG02 file in the repo
-          # is the corrected low-alpha-cleaned texture pack; this forces clients to
-          # actually fetch that corrected file instead of an older cached copy.
-          old_src = '    s.src=src;'
-          new_src = "    s.src=src+(src.includes('?')?'&':'?')+'v=20260908-cg02fix2';"
-          if 'v=20260908-cg02fix2' not in text:
-              if old_src not in text:
-                  raise RuntimeError('Lazy script loader anchor not found')
-              text = text.replace(old_src, new_src, 1)
+          if old not in text:
+              if new in text:
+                  print('Loader already patched')
+              else:
+                  raise RuntimeError('Current lazy loader block not found')
+          else:
+              text = text.replace(old, new, 1)
 
-          # CG02 uses the conservative fixed renderer: straight alpha, transparent
-          # canvas, no mipmaps, and no extra HQ supersampling override.
-          old_hq = '      player=p;installHighQualityRenderer(p);'
-          new_hq = "      player=p;if(cg!=='CG02')installHighQualityRenderer(p);"
-          if new_hq not in text:
-              if old_hq not in text:
-                  raise RuntimeError('HQ renderer anchor not found')
-              text = text.replace(old_hq, new_hq, 1)
-
-          # Touch/mobile: left half = previous, right half = next. Desktop keeps click=next.
-          old_pointerup = "stage.addEventListener('pointerup',e=>{if(!dragging)return;dragging=false;stage.classList.remove('dragging');try{stage.releasePointerCapture(e.pointerId)}catch(_e){}if(!movedDuringDrag&&e.target.id!=='showUiBtn')nextAction()});"
-          new_pointerup = "stage.addEventListener('pointerup',e=>{if(!dragging)return;dragging=false;stage.classList.remove('dragging');try{stage.releasePointerCapture(e.pointerId)}catch(_e){}if(!movedDuringDrag&&e.target.id!=='showUiBtn'){const mobileTap=e.pointerType==='touch'||window.matchMedia('(pointer:coarse),(max-width:900px)').matches;if(mobileTap){const r=stage.getBoundingClientRect();if(e.clientX<r.left+r.width/2)prevAction();else nextAction()}else nextAction()}});"
-          if "e.clientX<r.left+r.width/2" not in text:
-              if old_pointerup not in text:
-                  raise RuntimeError('Pointer-up handler anchor not found')
-              text = text.replace(old_pointerup, new_pointerup, 1)
-
-          # Pinch zoom must not trigger an action when the last finger lifts.
-          old_begin = "  function beginPinch(){\n    const pts = [...activePointers.values()];\n    if (pts.length < 2) return;"
-          new_begin = "  let pinchConsumedTap = false;\n  function beginPinch(){\n    const pts = [...activePointers.values()];\n    if (pts.length < 2) return;\n    pinchConsumedTap = true;"
-          if 'let pinchConsumedTap = false;' not in text:
-              if old_begin not in text:
-                  raise RuntimeError('Pinch begin anchor not found')
-              text = text.replace(old_begin, new_begin, 1)
-
-          old_clear = "  function clearTouchPointer(e){\n    if (e.pointerType !== 'touch') return;\n    activePointers.delete(e.pointerId);\n    if (pinch || activePointers.size >= 1) {\n      endPinchIfNeeded();\n      if (pinch === null) { e.stopImmediatePropagation(); }\n    }\n  }"
-          new_clear = "  function clearTouchPointer(e){\n    if (e.pointerType !== 'touch') return;\n    activePointers.delete(e.pointerId);\n    if (pinchConsumedTap) {\n      endPinchIfNeeded();\n      dragging = false;\n      stageEl.classList.remove('dragging');\n      e.preventDefault();\n      e.stopImmediatePropagation();\n      if (activePointers.size === 0) pinchConsumedTap = false;\n      return;\n    }\n    if (pinch || activePointers.size >= 1) {\n      endPinchIfNeeded();\n      if (pinch === null) { e.stopImmediatePropagation(); }\n    }\n  }"
-          if 'if (pinchConsumedTap)' not in text:
-              if old_clear not in text:
-                  raise RuntimeError('Touch pointer cleanup anchor not found')
-              text = text.replace(old_clear, new_clear, 1)
-
-          # Double-tap UI toggle conflicts with left/right navigation, so remove it.
-          start_marker = '  // Double tap toggles UI on mobile for convenience.'
-          end_marker = "  // More helpful first-load defaults on touch devices."
-          if start_marker in text:
-              start = text.index(start_marker)
-              end = text.index(end_marker, start)
-              text = text[:start] + '  // Double-tap UI toggle disabled; every tap is reserved for action navigation.\n\n' + text[end:]
-
-          assert "mipmaps:(cg!=='CG02')" in text
-          assert 'premultipliedAlpha:false' in text
-          assert "player=p;if(cg!=='CG02')installHighQualityRenderer(p);" in text
-          assert 'body.ui-hidden #hint{display:none!important}' in text
-          assert 'v=20260908-cg02fix2' in text
-          assert "e.clientX<r.left+r.width/2" in text
-          assert 'pinchConsumedTap' in text
-          assert start_marker not in text
+          assert "const version=(src==='assets_cg02.js')?'?v=20260908-cg02fix3':'';" in text
+          assert 'maxAttempts=3' in text
+          assert 'p.catch(()=>scriptLoads.delete(src))' in text
 
           path.write_text(text, encoding='utf-8')
 
@@ -106,5 +84,5 @@ jobs:
             echo "No changes needed"
             exit 0
           fi
-          git commit -m "Fix CG02 artifact and mobile left-right tap navigation"
+          git commit -m "Retry failed CG pack downloads and stop cache-busting CG01"
           git push
