@@ -1,4 +1,4 @@
-name: Reset mobile PWA cache
+name: Fix CG02 multiply shadows
 
 on:
   push:
@@ -18,36 +18,143 @@ jobs:
       - name: Sync latest main
         run: git pull --rebase origin main
 
-      - name: Patch mobile cache reset
+      - name: Install Pillow
+        run: python -m pip install --disable-pip-version-check pillow
+
+      - name: Fix CG02 multiply-shadow texture
         shell: python
         run: |
           from pathlib import Path
-          p = Path('index.html')
-          text = p.read_text(encoding='utf-8')
+          import base64, io, json, re, urllib.parse
+          from PIL import Image
 
-          old = """  // Service worker registration (works only under http/https or localhost).\n  if ('serviceWorker' in navigator) {\n    window.addEventListener('load', function(){\n      navigator.serviceWorker.register('./sw.js').catch(function(err){ console.warn('SW register failed', err); });\n    });\n  }"""
+          asset_path = Path('assets_cg02.js')
+          text = asset_path.read_text(encoding='utf-8')
+          marker = '// CG02_MULTIPLY_SHADOW_FIX_20260908_V1'
 
-          new = """  // Mobile recovery: old PWA caches can keep serving broken/stale CG packs.\n  // On phones/tablets we now remove all old service workers/caches and use direct network loading.\n  const mobileClient = /iphone|ipad|ipod|android/i.test(navigator.userAgent) || window.matchMedia('(pointer:coarse),(max-width:900px)').matches;\n  if ('serviceWorker' in navigator) {\n    window.addEventListener('load', async function(){\n      if (mobileClient) {\n        try {\n          const hadController = !!navigator.serviceWorker.controller;\n          const regs = await navigator.serviceWorker.getRegistrations();\n          await Promise.all(regs.map(r => r.unregister()));\n          if ('caches' in window) {\n            const keys = await caches.keys();\n            await Promise.all(keys.map(k => caches.delete(k)));\n          }\n          const resetKey = 'cg-mobile-cache-reset-20260908-v1';\n          if (hadController && sessionStorage.getItem(resetKey) !== '1') {\n            sessionStorage.setItem(resetKey, '1');\n            location.reload();\n            return;\n          }\n        } catch (err) {\n          console.warn('Mobile cache reset failed', err);\n        }\n        return;\n      }\n      navigator.serviceWorker.register('./sw.js', {updateViaCache:'none'}).catch(function(err){ console.warn('SW register failed', err); });\n    });\n  }"""
+          if marker not in text:
+              prefix = 'Object.assign(window.ALL_ASSETS,'
+              start = text.find(prefix)
+              if start < 0:
+                  raise RuntimeError('CG02 asset JSON wrapper not found')
+              start += len(prefix)
+              end = text.rfind(');')
+              if end < start:
+                  raise RuntimeError('CG02 asset JSON wrapper end not found')
 
-          if new in text:
-              print('Patch already present')
-          elif old in text:
-              text = text.replace(old, new, 1)
+              payload = json.loads(text[start:end])
+              raw = payload['CG02']
+
+              def decode_data_uri(uri):
+                  meta, data = uri.split(',', 1)
+                  if ';base64' in meta:
+                      return base64.b64decode(data), meta
+                  return urllib.parse.unquote_to_bytes(data), meta
+
+              png_bytes, png_meta = decode_data_uri(raw['CG02.png'])
+              atlas_bytes, _ = decode_data_uri(raw['CG02.atlas'])
+              atlas = atlas_bytes.decode('utf-8')
+
+              im = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
+              page_size = re.search(r'^size:(\d+),(\d+)', atlas, re.M)
+              if not page_size:
+                  raise RuntimeError('Atlas page size not found')
+              page_w, page_h = map(int, page_size.groups())
+              sx, sy = im.width / page_w, im.height / page_h
+
+              regions = {}
+              current = None
+              for line in atlas.splitlines()[1:]:
+                  if not line.strip():
+                      continue
+                  if not line.startswith((' ', '\t')) and ':' not in line:
+                      current = line.strip()
+                      regions[current] = {}
+                  elif current and ':' in line:
+                      k, v = line.strip().split(':', 1)
+                      regions[current][k] = v.strip()
+
+              # These slots are Multiply in the original CG02 Spine skeleton.
+              # Straight-alpha multiply on WebGL can make low-alpha RGB brighten
+              # instead of darken. Premultiplying RGB only inside these atlas
+              # regions restores the intended shadow equation without touching
+              # normal-blend artwork.
+              multiply_regions = [
+                  'RP_lower arm_L_shadow',
+                  'Chest_R_shadow',
+                  'Chest_L_shadow',
+                  'hair_08_shadow',
+                  'hair_04_shadow',
+                  'LP_penis_shadow',
+                  'RP_penis_shadow',
+                  'RP_finger_R_shadow',
+                  'RP_finger_L_shadow',
+                  'RP_head_shadow',
+              ]
+
+              px = im.load()
+              fixed = []
+              for name in multiply_regions:
+                  region = regions.get(name)
+                  if not region or 'bounds' not in region:
+                      raise RuntimeError(f'Multiply region missing from atlas: {name}')
+                  x, y, w, h = map(int, region['bounds'].split(','))
+                  x0 = max(0, round(x * sx))
+                  y0 = max(0, round(y * sy))
+                  x1 = min(im.width, round((x + w) * sx))
+                  y1 = min(im.height, round((y + h) * sy))
+                  for yy in range(y0, y1):
+                      for xx in range(x0, x1):
+                          r, g, b, a = px[xx, yy]
+                          if a < 255:
+                              px[xx, yy] = (
+                                  round(r * a / 255),
+                                  round(g * a / 255),
+                                  round(b * a / 255),
+                                  a,
+                              )
+                  fixed.append(name)
+
+              out = io.BytesIO()
+              im.save(out, format='PNG', optimize=True, compress_level=9)
+              raw['CG02.png'] = 'data:image/png;base64,' + base64.b64encode(out.getvalue()).decode('ascii')
+
+              rebuilt = text[:start] + json.dumps(payload, ensure_ascii=False, separators=(',', ':')) + text[end:]
+              rebuilt = marker + '\n' + rebuilt
+              asset_path.write_text(rebuilt, encoding='utf-8')
+              print('Fixed multiply regions:', ', '.join(fixed))
           else:
-              raise RuntimeError('Service worker registration block not found')
+              print('CG02 texture fix already applied')
 
-          p.write_text(text, encoding='utf-8')
+          # Cache-bust just CG02 and explicitly preserve its original Multiply
+          # blend modes. Do not change the animation-driven shadow alpha.
+          index_path = Path('index.html')
+          html = index_path.read_text(encoding='utf-8')
+
+          old_fn = "function cgAssetScript(cg){return `assets_${String(cg).toLowerCase()}.js`}"
+          new_fn = "function cgAssetScript(cg){const f=`assets_${String(cg).toLowerCase()}.js`;return cg==='CG02'?f+'?v=20260908-multiply-shadow-v1':f}"
+          if new_fn not in html:
+              if old_fn not in html:
+                  raise RuntimeError('cgAssetScript function anchor not found')
+              html = html.replace(old_fn, new_fn, 1)
+
+          old_success = "      player=p;if(cg!=='CG02')installHighQualityRenderer(p);"
+          new_success = "      player=p;if(cg!=='CG02')installHighQualityRenderer(p);else{for(const n of ['LP_penis_shadow','RP_penis_shadow']){try{const s=p.skeleton.findSlot(n);if(s&&s.data&&spine.BlendMode)s.data.blendMode=spine.BlendMode.Multiply}catch(e){}}}"
+          if new_success not in html:
+              if old_success not in html:
+                  raise RuntimeError('CG02 success callback anchor not found')
+              html = html.replace(old_success, new_success, 1)
+
+          index_path.write_text(html, encoding='utf-8')
 
       - name: Commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
+          git add assets_cg02.js index.html
           if git diff --cached --quiet; then
             echo "No changes needed"
             exit 0
           fi
-          git commit -m "Reset stale mobile PWA caches and disable SW on mobile"
+          git commit -m "Fix CG02 multiply shadow whitening"
           git push
-
-# retry with sync before patch
