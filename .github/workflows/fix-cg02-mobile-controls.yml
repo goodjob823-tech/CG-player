@@ -1,4 +1,4 @@
-name: Fix CG02 multiply shadows
+name: Fix CG02 upper-left shadow
 
 on:
   push:
@@ -18,143 +18,61 @@ jobs:
       - name: Sync latest main
         run: git pull --rebase origin main
 
-      - name: Install Pillow
-        run: python -m pip install --disable-pip-version-check pillow
-
-      - name: Fix CG02 multiply-shadow texture
+      - name: Patch CG02 upper-left shadow
         shell: python
         run: |
           from pathlib import Path
-          import base64, io, json, re, urllib.parse
-          from PIL import Image
 
-          asset_path = Path('assets_cg02.js')
-          text = asset_path.read_text(encoding='utf-8')
-          marker = '// CG02_MULTIPLY_SHADOW_FIX_20260908_V1'
+          p = Path('index.html')
+          html = p.read_text(encoding='utf-8')
 
-          if marker not in text:
-              prefix = 'Object.assign(window.ALL_ASSETS,'
-              start = text.find(prefix)
-              if start < 0:
-                  raise RuntimeError('CG02 asset JSON wrapper not found')
-              start += len(prefix)
-              end = text.rfind(');')
-              if end < start:
-                  raise RuntimeError('CG02 asset JSON wrapper end not found')
+          old = """      player=p;if(cg!=='CG02')installHighQualityRenderer(p);else{for(const n of ['LP_penis_shadow','RP_penis_shadow']){try{const s=p.skeleton.findSlot(n);if(s&&s.data&&spine.BlendMode)s.data.blendMode=spine.BlendMode.Multiply}catch(e){}}}"""
 
-              payload = json.loads(text[start:end])
-              raw = payload['CG02']
+          new = """      player=p;if(cg!=='CG02')installHighQualityRenderer(p);else{
+        // CG02 has two separate genital shadow meshes. The lower/right one is
+        // visible in the early actions, but the upper/left LP shadow is keyed
+        // to alpha 0 in Action_00-03. In the browser renderer that leaves the
+        // upper-left area looking unnaturally washed out. Keep the original
+        // Multiply material and restore that shadow only for those actions.
+        for(const n of ['LP_penis_shadow','RP_penis_shadow']){
+          try{const s=p.skeleton.findSlot(n);if(s&&s.data&&spine.BlendMode)s.data.blendMode=spine.BlendMode.Multiply}catch(e){}
+        }
+        try{
+          const lp=p.skeleton.findSlot('LP_penis_shadow');
+          const si=lp&&lp.data?lp.data.index:-1;
+          if(si>=0){
+            for(const a of (p.skeleton.data.animations||[])){
+              if(!['Action_00','Action_01','Action_02','Action_03'].includes(a.name))continue;
+              for(const tl of (a.timelines||[])){
+                const ids=tl&&tl.propertyIds||[];
+                if(tl&&tl.slotIndex===si&&tl.frames&&ids.some(id=>String(id)==='9|'+si)){
+                  const step=(typeof tl.getFrameEntries==='function')?tl.getFrameEntries():5;
+                  for(let j=step-1;j<tl.frames.length;j+=step)tl.frames[j]=1;
+                }
+              }
+            }
+          }
+        }catch(e){console.warn('CG02 LP shadow timeline fix failed',e)}
+      }"""
 
-              def decode_data_uri(uri):
-                  meta, data = uri.split(',', 1)
-                  if ';base64' in meta:
-                      return base64.b64decode(data), meta
-                  return urllib.parse.unquote_to_bytes(data), meta
-
-              png_bytes, png_meta = decode_data_uri(raw['CG02.png'])
-              atlas_bytes, _ = decode_data_uri(raw['CG02.atlas'])
-              atlas = atlas_bytes.decode('utf-8')
-
-              im = Image.open(io.BytesIO(png_bytes)).convert('RGBA')
-              page_size = re.search(r'^size:(\d+),(\d+)', atlas, re.M)
-              if not page_size:
-                  raise RuntimeError('Atlas page size not found')
-              page_w, page_h = map(int, page_size.groups())
-              sx, sy = im.width / page_w, im.height / page_h
-
-              regions = {}
-              current = None
-              for line in atlas.splitlines()[1:]:
-                  if not line.strip():
-                      continue
-                  if not line.startswith((' ', '\t')) and ':' not in line:
-                      current = line.strip()
-                      regions[current] = {}
-                  elif current and ':' in line:
-                      k, v = line.strip().split(':', 1)
-                      regions[current][k] = v.strip()
-
-              # These slots are Multiply in the original CG02 Spine skeleton.
-              # Straight-alpha multiply on WebGL can make low-alpha RGB brighten
-              # instead of darken. Premultiplying RGB only inside these atlas
-              # regions restores the intended shadow equation without touching
-              # normal-blend artwork.
-              multiply_regions = [
-                  'RP_lower arm_L_shadow',
-                  'Chest_R_shadow',
-                  'Chest_L_shadow',
-                  'hair_08_shadow',
-                  'hair_04_shadow',
-                  'LP_penis_shadow',
-                  'RP_penis_shadow',
-                  'RP_finger_R_shadow',
-                  'RP_finger_L_shadow',
-                  'RP_head_shadow',
-              ]
-
-              px = im.load()
-              fixed = []
-              for name in multiply_regions:
-                  region = regions.get(name)
-                  if not region or 'bounds' not in region:
-                      raise RuntimeError(f'Multiply region missing from atlas: {name}')
-                  x, y, w, h = map(int, region['bounds'].split(','))
-                  x0 = max(0, round(x * sx))
-                  y0 = max(0, round(y * sy))
-                  x1 = min(im.width, round((x + w) * sx))
-                  y1 = min(im.height, round((y + h) * sy))
-                  for yy in range(y0, y1):
-                      for xx in range(x0, x1):
-                          r, g, b, a = px[xx, yy]
-                          if a < 255:
-                              px[xx, yy] = (
-                                  round(r * a / 255),
-                                  round(g * a / 255),
-                                  round(b * a / 255),
-                                  a,
-                              )
-                  fixed.append(name)
-
-              out = io.BytesIO()
-              im.save(out, format='PNG', optimize=True, compress_level=9)
-              raw['CG02.png'] = 'data:image/png;base64,' + base64.b64encode(out.getvalue()).decode('ascii')
-
-              rebuilt = text[:start] + json.dumps(payload, ensure_ascii=False, separators=(',', ':')) + text[end:]
-              rebuilt = marker + '\n' + rebuilt
-              asset_path.write_text(rebuilt, encoding='utf-8')
-              print('Fixed multiply regions:', ', '.join(fixed))
+          if new in html:
+              print('Upper-left shadow patch already present')
+          elif old in html:
+              html = html.replace(old, new, 1)
           else:
-              print('CG02 texture fix already applied')
+              raise RuntimeError('CG02 success callback anchor not found')
 
-          # Cache-bust just CG02 and explicitly preserve its original Multiply
-          # blend modes. Do not change the animation-driven shadow alpha.
-          index_path = Path('index.html')
-          html = index_path.read_text(encoding='utf-8')
-
-          old_fn = "function cgAssetScript(cg){return `assets_${String(cg).toLowerCase()}.js`}"
-          new_fn = "function cgAssetScript(cg){const f=`assets_${String(cg).toLowerCase()}.js`;return cg==='CG02'?f+'?v=20260908-multiply-shadow-v1':f}"
-          if new_fn not in html:
-              if old_fn not in html:
-                  raise RuntimeError('cgAssetScript function anchor not found')
-              html = html.replace(old_fn, new_fn, 1)
-
-          old_success = "      player=p;if(cg!=='CG02')installHighQualityRenderer(p);"
-          new_success = "      player=p;if(cg!=='CG02')installHighQualityRenderer(p);else{for(const n of ['LP_penis_shadow','RP_penis_shadow']){try{const s=p.skeleton.findSlot(n);if(s&&s.data&&spine.BlendMode)s.data.blendMode=spine.BlendMode.Multiply}catch(e){}}}"
-          if new_success not in html:
-              if old_success not in html:
-                  raise RuntimeError('CG02 success callback anchor not found')
-              html = html.replace(old_success, new_success, 1)
-
-          index_path.write_text(html, encoding='utf-8')
+          html = html.replace('20260908-multiply-shadow-v1', '20260908-upper-left-shadow-v2')
+          p.write_text(html, encoding='utf-8')
 
       - name: Commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add assets_cg02.js index.html
+          git add index.html
           if git diff --cached --quiet; then
             echo "No changes needed"
             exit 0
           fi
-          git commit -m "Fix CG02 multiply shadow whitening"
+          git commit -m "Restore CG02 upper-left shadow in early actions"
           git push
