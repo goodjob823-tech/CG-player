@@ -1,0 +1,172 @@
+name: Optimize player lazy loading v2
+
+on:
+  push:
+    paths:
+      - '.github/workflows/optimize-lazy-loading-v2.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply lazy-loading patch
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('index.html')
+          text=p.read_text(encoding='utf-8')
+
+          for tag in [
+            '<script src="assets_cg01.js"></script>\n','<script src="assets_cg02.js"></script>\n',
+            '<script src="assets_cg03.js"></script>\n','<script src="assets_cg04.js"></script>\n',
+            '<script src="assets_cg05.js"></script>\n','<script src="backgrounds.js"></script>\n',
+            '<script src="audio_1.js"></script>\n','<script src="audio_2.js"></script>\n','<script src="audio_3.js"></script>\n'
+          ]:
+            text=text.replace(tag,'')
+
+          old='''const ALL_ASSETS=window.ALL_ASSETS;
+          const BACKGROUNDS=window.BACKGROUNDS;
+          const CG_ORDER=["CG01", "CG02", "CG03", "CG04", "CG05"];
+          const CG_FOLDER={"CG01": "CG01", "CG02": "CG02", "CG03": "CG03", "CG04": "CG_04", "CG05": "CG_05"};
+          const AUDIO_POOL=window.AUDIO_POOL;
+          '''
+          new='''const ALL_ASSETS=window.ALL_ASSETS=window.ALL_ASSETS||{};
+          const BACKGROUNDS=window.BACKGROUNDS=window.BACKGROUNDS||{};
+          const CG_ORDER=["CG01", "CG02", "CG03", "CG04", "CG05"];
+          const CG_FOLDER={"CG01": "CG01", "CG02": "CG02", "CG03": "CG03", "CG04": "CG_04", "CG05": "CG_05"};
+          const AUDIO_POOL=window.AUDIO_POOL=window.AUDIO_POOL||{};
+
+          const scriptLoads=new Map();
+          function loadScriptOnce(src){
+            if(scriptLoads.has(src))return scriptLoads.get(src);
+            const p=new Promise((resolve,reject)=>{
+              const s=document.createElement('script');
+              s.src=src;s.async=true;
+              s.onload=()=>resolve(src);
+              s.onerror=()=>reject(new Error(`無法下載 ${src}`));
+              document.head.appendChild(s);
+            });
+            scriptLoads.set(src,p);return p;
+          }
+          function cgAssetScript(cg){return `assets_${String(cg).toLowerCase()}.js`}
+          async function ensureCGAssets(cg){
+            if(ALL_ASSETS[cg])return ALL_ASSETS[cg];
+            await loadScriptOnce(cgAssetScript(cg));
+            if(!ALL_ASSETS[cg])throw new Error(`${cg} 資源檔載入後仍找不到資料`);
+            return ALL_ASSETS[cg];
+          }
+          let backgroundsPromise=null;
+          async function ensureBackgrounds(){
+            if(BACKGROUNDS.CG01||BACKGROUNDS.CG02||BACKGROUNDS.CG03||BACKGROUNDS.CG04||BACKGROUNDS.CG05)return BACKGROUNDS;
+            if(!backgroundsPromise){
+              backgroundsPromise=loadScriptOnce('backgrounds.js').then(()=>{
+                const loaded=window.BACKGROUNDS||{};
+                if(loaded!==BACKGROUNDS)Object.assign(BACKGROUNDS,loaded);
+                window.BACKGROUNDS=BACKGROUNDS;return BACKGROUNDS;
+              }).catch(e=>{backgroundsPromise=null;throw e});
+            }
+            return backgroundsPromise;
+          }
+          let audioPromise=null;
+          async function ensureAudioLoaded(){
+            if(Object.keys(AUDIO_POOL).length)return AUDIO_POOL;
+            if(!audioPromise){
+              audioPromise=Promise.all(['audio_1.js','audio_2.js','audio_3.js'].map(loadScriptOnce))
+                .then(()=>AUDIO_POOL).catch(e=>{audioPromise=null;throw e});
+            }
+            return audioPromise;
+          }
+          '''
+          if old not in text: raise RuntimeError('global block not found')
+          text=text.replace(old,new,1)
+
+          oldbg="function setBackground(cg){bgImage.src=BACKGROUNDS[cg]||''}"
+          newbg='''function setBackground(cg){
+            if(BACKGROUNDS[cg]){bgImage.src=BACKGROUNDS[cg];return Promise.resolve();}
+            return ensureBackgrounds().then(()=>{if(cg===currentCG)bgImage.src=BACKGROUNDS[cg]||'';})
+              .catch(e=>console.warn('背景載入失敗',e));
+          }'''
+          if oldbg not in text: raise RuntimeError('background function not found')
+          text=text.replace(oldbg,newbg,1)
+
+          start=text.index('function loadCG(cg){')
+          end=text.index("\n\ndocument.addEventListener('fullscreenchange'",start)
+          newload='''async function loadCG(cg){
+            currentCG=cg;
+            currentCGIndex=Math.max(0,CG_ORDER.indexOf(cg));
+            currentActionIndex=0;
+            const t=++loadingToken;
+            showLoading(`載入 ${cg}…`);
+            destroyPlayer();
+            bgImage.src=BACKGROUNDS[cg]||'';
+            loadSavedView(cg);
+            state.cg=cg;saveState();
+            let raw;
+            try{raw=await ensureCGAssets(cg)}catch(e){
+              if(t===loadingToken)showError(`${cg} 載入失敗：${e&&e.message?e.message:e}`);return;
+            }
+            if(t!==loadingToken)return;
+            const folder=CG_FOLDER[cg];
+            player=new spine.SpinePlayer('playerWrap',{
+              skeleton:`${folder}.skel`,atlas:`${folder}.atlas`,rawDataURIs:raw,animation:null,
+              showControls:false,interactive:false,premultipliedAlpha:false,
+              mipmaps:(cg!=='CG02'),alpha:true,backgroundColor:'#00000000',viewport:{transitionTime:0},
+              success:(p)=>{
+                if(t!==loadingToken)return;
+                player=p;installHighQualityRenderer(p);
+                currentAnimNames=(p.skeleton.data.animations||[]).map(a=>a.name);
+                p.animationState.addListener({event:(entry,ev)=>{try{const n=ev&&ev.data?ev.data.name:(ev&&ev.name?ev.name:'');playAudioEvent(n)}catch(e){}}});
+                p.animationState.data.defaultMix=0;
+                for(let i=0;i<currentAnimNames.length;i++)for(let j=0;j<currentAnimNames.length;j++)if(i!==j)p.animationState.data.setMix(currentAnimNames[i],currentAnimNames[j],0);
+                currentItems=buildItems(cg,currentAnimNames);currentActionIndex=0;
+                setFixedViewport(p,currentAnimNames);applyCurrentAction();
+                hideLoading();updateHUD();stage.focus();
+                clearTimeout(hintTimer);hintTimer=setTimeout(()=>document.getElementById('hint').style.opacity='.25',4500);
+                setTimeout(()=>{if(t===loadingToken)setBackground(cg)},80);
+              },
+              error:(p,m)=>{if(t!==loadingToken)return;showError(`${cg} 載入失敗：${m}`)}
+            });
+          }'''
+          text=text[:start]+newload+text[end:]
+
+          marker="\n<script>\n/* Mobile UI + gesture enhancement patch */"
+          if marker not in text: raise RuntimeError('mobile patch marker not found')
+          lazy_audio='''
+          <script>
+          /* Lazy audio data: keep the large voice/SFX bundles off startup. */
+          (function(){
+            const previousPlayAudioEvent=playAudioEvent;
+            playAudioEvent=function(name){
+              if(audioMuted||!name)return;
+              if(AUDIO_POOL[name]&&AUDIO_POOL[name].length){previousPlayAudioEvent(name);return;}
+              ensureAudioLoaded().then(()=>{
+                if(!audioMuted&&AUDIO_POOL[name]&&AUDIO_POOL[name].length)previousPlayAudioEvent(name);
+              }).catch(()=>{});
+            };
+          })();
+          </script>
+          '''
+          text=text.replace(marker,'\n'+lazy_audio+marker,1)
+          if '<!-- cg-lazy-load-v2 -->' not in text:text=text.replace('</head>','<!-- cg-lazy-load-v2 -->\n</head>',1)
+
+          assert 'var spine=(()=>{' in text
+          assert '#mobileToolbar{display:none!important}' in text
+          assert 'try { setUiHidden(true); }' in text
+          assert 'async function ensureCGAssets' in text
+          assert 'async function loadCG(cg)' in text
+          assert '<script src="assets_cg01.js"></script>' not in text
+          assert '<script src="audio_1.js"></script>' not in text
+          assert '<script src="backgrounds.js"></script>' not in text
+          p.write_text(text,encoding='utf-8')
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Speed up startup with lazy-loaded CG, background and audio assets"
+          git push
