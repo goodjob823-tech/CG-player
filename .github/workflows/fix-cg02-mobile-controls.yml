@@ -1,4 +1,4 @@
-name: Fix offline button placement
+name: Restore stable player
 
 on:
   push:
@@ -9,64 +9,27 @@ permissions:
   contents: write
 
 jobs:
-  patch:
+  restore:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Move offline script to real document body
-        shell: python
+      - name: Restore last stable player files
         run: |
-          from pathlib import Path
+          git show 2f742e2061584eb2c719e893d72d541e35525058:index.html > index.html
+          git show 2f742e2061584eb2c719e893d72d541e35525058:sw.js > sw.js
 
-          path = Path('index.html')
-          text = path.read_text(encoding='utf-8')
-          marker = '<script id="offline-library-v1">'
-
-          start = text.find(marker)
-          if start < 0:
-              raise RuntimeError('Offline script block not found')
-
-          end = text.find('</script>', start)
-          if end < 0:
-              raise RuntimeError('Offline script closing tag not found')
-          end += len('</script>')
-
-          block = text[start:end]
-          text = text[:start] + text[end:]
-
-          # Remove any accidental duplicate copies before reinserting once.
-          while marker in text:
-              s = text.find(marker)
-              e = text.find('</script>', s)
-              if e < 0:
-                  raise RuntimeError('Duplicate offline block is malformed')
-              text = text[:s] + text[e + len('</script>'):]
-
-          body_end = text.rfind('</body>')
-          if body_end < 0:
-              raise RuntimeError('Real closing body tag not found')
-
-          text = text[:body_end] + '\n' + block + '\n' + text[body_end:]
-
-          # The offline block should now be after the actual player scripts and
-          # very close to the real closing body tag, not inside Spine runtime text.
-          new_start = text.rfind(marker)
-          assert new_start > text.rfind('</script>', 0, new_start)
-          assert text.find('</body>', new_start) >= 0
-          assert text.count(marker) == 1
-
-          path.write_text(text, encoding='utf-8')
-
-      - name: Commit changes
+      - name: Commit restore
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html
+          git add index.html sw.js
           if git diff --cached --quiet; then
             echo "No changes needed"
             exit 0
           fi
-          git commit -m "Place offline download control in actual page body"
+          git commit -m "Restore stable playback before offline-mode changes"
           git push
