@@ -19,60 +19,43 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-
           path = Path('index.html')
           text = path.read_text(encoding='utf-8')
-
-          old = """function loadScriptOnce(src){
-  if(scriptLoads.has(src))return scriptLoads.get(src);
-  const p=new Promise((resolve,reject)=>{
-    const s=document.createElement('script');
-    s.src=src+(src.includes('?')?'&':'?')+'v=20260908-cg02fix2';s.async=true;
-    s.onload=()=>resolve(src);
-    s.onerror=()=>reject(new Error(`無法下載 ${src}`));
-    document.head.appendChild(s);
-  });
-  scriptLoads.set(src,p);return p;
-}"""
-
-          new = """function loadScriptOnce(src){
-  if(scriptLoads.has(src))return scriptLoads.get(src);
-  const p=new Promise((resolve,reject)=>{
-    let attempt=0;
-    const maxAttempts=3;
-    const run=()=>{
-      attempt++;
-      const s=document.createElement('script');
-      const version=(src==='assets_cg02.js')?'?v=20260908-cg02fix3':'';
-      s.src=src+version;
-      s.async=true;
-      s.onload=()=>resolve(src);
-      s.onerror=()=>{
-        try{s.remove()}catch(e){}
-        if(attempt<maxAttempts){setTimeout(run,500*attempt);return;}
-        reject(new Error(`無法下載 ${src}（已重試 ${maxAttempts} 次）`));
-      };
-      document.head.appendChild(s);
-    };
-    run();
-  });
-  scriptLoads.set(src,p);
-  p.catch(()=>scriptLoads.delete(src));
-  return p;
-}"""
-
-          if old not in text:
-              if new in text:
-                  print('Loader already patched')
-              else:
-                  raise RuntimeError('Current lazy loader block not found')
-          else:
-              text = text.replace(old, new, 1)
-
+          start = text.index('function loadScriptOnce(src){')
+          end = text.index('function cgAssetScript', start)
+          lines = [
+              "function loadScriptOnce(src){",
+              "  if(scriptLoads.has(src))return scriptLoads.get(src);",
+              "  const p=new Promise((resolve,reject)=>{",
+              "    let attempt=0;",
+              "    const maxAttempts=3;",
+              "    const run=()=>{",
+              "      attempt++;",
+              "      const s=document.createElement('script');",
+              "      const version=(src==='assets_cg02.js')?'?v=20260908-cg02fix3':'';",
+              "      s.src=src+version;",
+              "      s.async=true;",
+              "      s.onload=()=>resolve(src);",
+              "      s.onerror=()=>{",
+              "        try{s.remove()}catch(e){}",
+              "        if(attempt<maxAttempts){setTimeout(run,500*attempt);return;}",
+              "        reject(new Error(`無法下載 ${src}（已重試 ${maxAttempts} 次）`));",
+              "      };",
+              "      document.head.appendChild(s);",
+              "    };",
+              "    run();",
+              "  });",
+              "  scriptLoads.set(src,p);",
+              "  p.catch(()=>scriptLoads.delete(src));",
+              "  return p;",
+              "}",
+              "",
+          ]
+          new_func = '\n'.join(lines)
+          text = text[:start] + new_func + text[end:]
           assert "const version=(src==='assets_cg02.js')?'?v=20260908-cg02fix3':'';" in text
-          assert 'maxAttempts=3' in text
-          assert 'p.catch(()=>scriptLoads.delete(src))' in text
-
+          assert 'const maxAttempts=3;' in text
+          assert 'p.catch(()=>scriptLoads.delete(src));' in text
           path.write_text(text, encoding='utf-8')
 
       - name: Commit changes
