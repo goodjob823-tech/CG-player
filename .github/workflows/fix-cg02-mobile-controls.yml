@@ -1,4 +1,4 @@
-name: Restore stable player
+name: Reset mobile PWA cache
 
 on:
   push:
@@ -9,27 +9,40 @@ permissions:
   contents: write
 
 jobs:
-  restore:
+  patch:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Restore last stable player files
+      - name: Patch mobile cache reset
+        shell: python
         run: |
-          git show 2f742e2061584eb2c719e893d72d541e35525058:index.html > index.html
-          git show 2f742e2061584eb2c719e893d72d541e35525058:sw.js > sw.js
+          from pathlib import Path
+          p = Path('index.html')
+          text = p.read_text(encoding='utf-8')
 
-      - name: Commit restore
+          old = """  // Service worker registration (works only under http/https or localhost).\n  if ('serviceWorker' in navigator) {\n    window.addEventListener('load', function(){\n      navigator.serviceWorker.register('./sw.js').catch(function(err){ console.warn('SW register failed', err); });\n    });\n  }"""
+
+          new = """  // Mobile recovery: old PWA caches can keep serving broken/stale CG packs.\n  // On phones/tablets we now remove all old service workers/caches and use direct network loading.\n  const mobileClient = /iphone|ipad|ipod|android/i.test(navigator.userAgent) || window.matchMedia('(pointer:coarse),(max-width:900px)').matches;\n  if ('serviceWorker' in navigator) {\n    window.addEventListener('load', async function(){\n      if (mobileClient) {\n        try {\n          const hadController = !!navigator.serviceWorker.controller;\n          const regs = await navigator.serviceWorker.getRegistrations();\n          await Promise.all(regs.map(r => r.unregister()));\n          if ('caches' in window) {\n            const keys = await caches.keys();\n            await Promise.all(keys.map(k => caches.delete(k)));\n          }\n          const resetKey = 'cg-mobile-cache-reset-20260908-v1';\n          if (hadController && sessionStorage.getItem(resetKey) !== '1') {\n            sessionStorage.setItem(resetKey, '1');\n            location.reload();\n            return;\n          }\n        } catch (err) {\n          console.warn('Mobile cache reset failed', err);\n        }\n        return;\n      }\n      navigator.serviceWorker.register('./sw.js', {updateViaCache:'none'}).catch(function(err){ console.warn('SW register failed', err); });\n    });\n  }"""
+
+          if new in text:
+              print('Patch already present')
+          elif old in text:
+              text = text.replace(old, new, 1)
+          else:
+              raise RuntimeError('Service worker registration block not found')
+
+          p.write_text(text, encoding='utf-8')
+
+      - name: Commit
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add index.html sw.js
+          git add index.html
           if git diff --cached --quiet; then
             echo "No changes needed"
             exit 0
           fi
-          git commit -m "Restore stable playback before offline-mode changes"
+          git commit -m "Reset stale mobile PWA caches and disable SW on mobile"
           git push
