@@ -293,7 +293,7 @@ function loadScriptOnce(src){
   p.catch(()=>scriptLoads.delete(src));
   return p;
 }
-function cgAssetScript(cg){const f=`assets_${String(cg).toLowerCase()}.js`;return cg==='CG02'?f+'?v=20260908-multiply-shadow-v1':f}
+function cgAssetScript(cg){const f=`assets_${String(cg).toLowerCase()}.js`;return cg==='CG02'?f+'?v=20260908-upper-left-shadow-v2':f}
 async function ensureCGAssets(cg){
   if(ALL_ASSETS[cg])return ALL_ASSETS[cg];
   await loadScriptOnce(cgAssetScript(cg));
@@ -585,7 +585,7 @@ async function loadCG(cg){
     mipmaps:(cg!=='CG02'),alpha:true,backgroundColor:'#00000000',viewport:{transitionTime:0},
     success:(p)=>{
       if(t!==loadingToken)return;
-      player=p;if(cg!=='CG02')installHighQualityRenderer(p);else{for(const n of ['LP_penis_shadow','RP_penis_shadow']){try{const s=p.skeleton.findSlot(n);if(s&&s.data&&spine.BlendMode)s.data.blendMode=spine.BlendMode.Multiply}catch(e){}}}
+      player=p;if(cg!=='CG02')installHighQualityRenderer(p);else{for(const n of ['LP_penis_shadow','RP_penis_shadow']){try{const s=p.skeleton.findSlot(n);if(s&&s.data&&spine.BlendMode)s.data.blendMode=spine.BlendMode.Multiply}catch(e){}}try{const lp=p.skeleton.findSlot('LP_penis_shadow');const si=lp&&lp.data?lp.data.index:-1;if(si>=0){for(const a of (p.skeleton.data.animations||[])){if(!['Action_00','Action_01','Action_02','Action_03'].includes(a.name))continue;for(const tl of (a.timelines||[])){const ids=tl&&tl.propertyIds||[];if(tl&&tl.slotIndex===si&&tl.frames&&ids.some(id=>String(id)==='9|'+si)){const step=(typeof tl.getFrameEntries==='function')?tl.getFrameEntries():5;for(let j=step-1;j<tl.frames.length;j+=step)tl.frames[j]=1;}}}}}catch(e){console.warn('CG02 LP shadow timeline fix failed',e)}}
       currentAnimNames=(p.skeleton.data.animations||[]).map(a=>a.name);
       p.animationState.addListener({event:(entry,ev)=>{try{const n=ev&&ev.data?ev.data.name:(ev&&ev.name?ev.name:'');playAudioEvent(n)}catch(e){}}});
       p.animationState.data.defaultMix=0;
