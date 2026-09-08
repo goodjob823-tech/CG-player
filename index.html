@@ -253,7 +253,143 @@ new spine.SpinePlayer("player-container", {
 body { margin: 0px; }
 </style>
 </head>
-<body>`.trim();postfix="</body>";code;player;async load(){await Promise.all([fn("https://www.unpkg.com/codemirror@5.51.0/lib/codemirror.js"),mn("https://www.unpkg.com/codemirror@5.51.0/lib/codemirror.css")]),this.render(this.parent)}render(e){let i=`
+<body>`.trim();postfix="<script id="offline-library-v1">
+(function(){
+  const APPROX_MB = 86;
+  let offlineBtn = null;
+  let swReg = null;
+  let offlineComplete = false;
+  let busy = false;
+
+  function getWorker(){
+    return (swReg && (swReg.active || swReg.waiting || swReg.installing)) || navigator.serviceWorker.controller || null;
+  }
+
+  function friendlyName(item){
+    if (!item) return '資料';
+    const m = item.match(/assets_cg(\d+)\.js/i);
+    if (m) return 'CG' + m[1];
+    if (item.includes('backgrounds')) return '背景';
+    const a = item.match(/audio_(\d+)\.js/i);
+    if (a) return '音訊 ' + a[1];
+    return item.replace(/^\.\//,'');
+  }
+
+  function setButton(text, disabled=false){
+    if (!offlineBtn) return;
+    offlineBtn.textContent = text;
+    offlineBtn.disabled = disabled;
+  }
+
+  function addButton(){
+    if (document.getElementById('offlineLibraryBtn')) {
+      offlineBtn = document.getElementById('offlineLibraryBtn');
+      return;
+    }
+    const topbar = document.getElementById('topbar');
+    if (!topbar) return;
+    offlineBtn = document.createElement('button');
+    offlineBtn.id = 'offlineLibraryBtn';
+    offlineBtn.type = 'button';
+    offlineBtn.textContent = '檢查離線資料…';
+    offlineBtn.title = `完整離線資料約 ${APPROX_MB} MB，建議使用 Wi‑Fi`;
+    offlineBtn.addEventListener('click', startOfflineDownload);
+    topbar.appendChild(offlineBtn);
+  }
+
+  function postToWorker(message){
+    const worker = getWorker();
+    if (!worker) throw new Error('離線服務尚未準備完成');
+    worker.postMessage(message);
+  }
+
+  async function startOfflineDownload(){
+    if (busy) return;
+    if (!navigator.onLine) {
+      setButton('目前離線，無法更新');
+      return;
+    }
+    const ok = window.confirm(`完整離線資料約 ${APPROX_MB} MB。建議連接 Wi‑Fi 後下載。\n\n要現在開始嗎？`);
+    if (!ok) return;
+    busy = true;
+    setButton(offlineComplete ? '正在更新離線資料…' : '準備下載離線資料…', true);
+    try {
+      if (navigator.storage && navigator.storage.persist) {
+        try { await navigator.storage.persist(); } catch(e) {}
+      }
+      postToWorker({type:'DOWNLOAD_OFFLINE', force:offlineComplete});
+    } catch(e) {
+      busy = false;
+      setButton('離線下載失敗，點此重試');
+      offlineBtn.title = String(e && e.message ? e.message : e);
+    }
+  }
+
+  function handleWorkerMessage(event){
+    const data = event.data || {};
+    if (!offlineBtn) return;
+
+    if (data.type === 'OFFLINE_STATUS') {
+      offlineComplete = !!data.complete;
+      if (busy) return;
+      if (offlineComplete) setButton('更新離線資料 ✓');
+      else if (data.count > 0) setButton(`繼續下載離線資料 (${data.count}/${data.total})`);
+      else setButton('下載離線資料');
+      return;
+    }
+
+    if (data.type === 'OFFLINE_PROGRESS') {
+      busy = true;
+      const percent = Math.round((Number(data.index || 0) / Number(data.total || 1)) * 100);
+      const label = friendlyName(data.item);
+      setButton(data.stage === 'downloading' ? `下載 ${label}… ${percent}%` : `${label} 完成 ${percent}%`, true);
+      return;
+    }
+
+    if (data.type === 'OFFLINE_DONE') {
+      busy = false;
+      offlineComplete = true;
+      setButton('更新離線資料 ✓');
+      offlineBtn.title = '完整離線資料已下載，可在沒有網路時使用';
+      try { localStorage.setItem('cg_offline_library_ready','1'); } catch(e) {}
+      return;
+    }
+
+    if (data.type === 'OFFLINE_ERROR') {
+      busy = false;
+      offlineComplete = false;
+      setButton('離線下載失敗，點此重試');
+      offlineBtn.title = String(data.message || '下載失敗');
+    }
+  }
+
+  async function initOfflineMode(){
+    addButton();
+    if (!('serviceWorker' in navigator)) {
+      setButton('此瀏覽器不支援離線模式', true);
+      return;
+    }
+    navigator.serviceWorker.addEventListener('message', handleWorkerMessage);
+    try {
+      swReg = await navigator.serviceWorker.register('./sw.js');
+      try { await swReg.update(); } catch(e) {}
+      swReg = await navigator.serviceWorker.ready;
+      postToWorker({type:'GET_OFFLINE_STATUS'});
+    } catch(e) {
+      setButton('離線功能初始化失敗，點此重試');
+      if (offlineBtn) {
+        offlineBtn.disabled = false;
+        offlineBtn.onclick = () => location.reload();
+        offlineBtn.title = String(e && e.message ? e.message : e);
+      }
+    }
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', initOfflineMode, {once:true});
+  else initOfflineMode();
+})();
+</script>
+</body>";code;player;async load(){await Promise.all([fn("https://www.unpkg.com/codemirror@5.51.0/lib/codemirror.js"),mn("https://www.unpkg.com/codemirror@5.51.0/lib/codemirror.css")]),this.render(this.parent)}render(e){let i=`
 				<div style="display: flex; flex-direction: column; width: 100%; height: 100%;">
 					<div style="width: 100%; height: 50%"></div>
 					<iframe style="width: 100%; height: 50%; outline: none; border: none;"></iframe>
