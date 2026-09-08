@@ -1,0 +1,84 @@
+name: Repair player and apply mobile clean view
+
+on:
+  push:
+    paths:
+      - '.github/workflows/repair-mobile-clean-view.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Restore working player and apply mobile clean-view changes
+        shell: python
+        run: |
+          import subprocess
+          from pathlib import Path
+
+          # This commit is the last good player commit before index.html was accidentally truncated.
+          good_commit = '24ecdb24efde3364f26031255708b0e459b6f645'
+          original = subprocess.check_output(['git', 'show', f'{good_commit}:index.html'])
+          text = original.decode('utf-8')
+
+          # Remove the lower mobile toolbar completely.
+          text = text.replace(
+              '  #mobileToolbar{display:block}\n  body.ui-hidden #mobileToolbar{display:block}\n',
+              '  #mobileToolbar{display:none!important}\n  body.ui-hidden #mobileToolbar{display:none!important}\n'
+          )
+
+          # Put the touch hint back near the bottom now that the toolbar is gone.
+          text = text.replace(
+              '  #hint{left:12px;right:12px;bottom:calc(118px + var(--safe-bottom));transform:none;white-space:normal;text-align:center;padding:10px 12px;font-size:13px}\n',
+              '  #hint{left:12px;right:12px;bottom:calc(12px + var(--safe-bottom));transform:none;white-space:normal;text-align:center;padding:10px 12px;font-size:13px}\n'
+          )
+          text = text.replace(
+              '@media (pointer:coarse) and (orientation:portrait){\n  #hint{bottom:calc(138px + var(--safe-bottom))}\n}\n',
+              '@media (pointer:coarse) and (orientation:portrait){\n  #hint{bottom:calc(12px + var(--safe-bottom))}\n}\n'
+          )
+
+          text = text.replace(
+              "    hintEl.textContent = '手機操作：點一下＝下一個動作／長按拖曳＝移動／雙指開合＝縮放／下方按鈕可切換 CG、播放、聲音與全螢幕';",
+              "    hintEl.textContent = '手機操作：點一下＝下一個動作／長按拖曳＝移動／雙指開合＝縮放／需要操作時按右上角「顯示 UI」';"
+          )
+
+          # Belt-and-suspenders: hide the toolbar DOM if it is ever created.
+          text = text.replace(
+              '  stageEl.appendChild(toolbar);\n',
+              "  stageEl.appendChild(toolbar);\n  toolbar.style.display = 'none';\n",
+              1
+          )
+
+          # On phones/tablets, start in clean viewing mode. Desktop remains unchanged.
+          needle = "  // More helpful first-load defaults on touch devices.\n  if (mobileLike) {\n    try { volumeSlider.style.width = 'min(42vw, 220px)'; } catch(e){}\n  }\n"
+          replacement = "  // More helpful first-load defaults on touch devices.\n  if (mobileLike) {\n    try { volumeSlider.style.width = 'min(42vw, 220px)'; } catch(e){}\n    try { setUiHidden(true); } catch(e){}\n  }\n"
+          if needle not in text:
+              raise RuntimeError('Expected mobile defaults block not found; aborting repair.')
+          text = text.replace(needle, replacement, 1)
+
+          # Safety checks so we never commit another truncated player.
+          assert 'var spine=(()=>{' in text, 'Spine runtime missing'
+          assert 'spine runtime omitted here for brevity' not in text, 'Placeholder runtime detected'
+          assert '#mobileToolbar{display:none!important}' in text, 'Mobile toolbar hide patch missing'
+          assert 'try { setUiHidden(true); }' in text, 'Clean-view default missing'
+
+          Path('index.html').write_text(text, encoding='utf-8')
+
+      - name: Commit repaired index
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          if git diff --cached --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git commit -m "Repair player; mobile starts in clean viewing mode"
+          git push
